@@ -48,6 +48,8 @@ struct VintageCalculatorView: View {
                         .textCase(.uppercase)
                         .tracking(1.1)
 
+                    poolModifierButtonRow
+
                     LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
                         ForEach(CalculatorViewModel.DigitalDie.allCases) { die in
                             digitalDieColumn(die)
@@ -164,6 +166,130 @@ struct VintageCalculatorView: View {
     }
 
     /// Every 5 presses refills 1…5 lights; tier color cycles green → blue → purple → red → orange.
+    private let advIndicatorBlue = Color(red: 0.28, green: 0.62, blue: 1.0)
+    private let doubleAdvTeal = Color(red: 0.22, green: 0.78, blue: 0.76)
+    private let disIndicatorRed = Color(red: 0.95, green: 0.22, blue: 0.22)
+    private let modifierLedOff = Color(red: 0.15, green: 0.13, blue: 0.12)
+
+    private var modifierGridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
+    }
+
+    private func modifierIndicatorLed(lit: Bool, color: Color) -> some View {
+        Circle()
+            .fill(lit ? color : modifierLedOff)
+            .frame(width: 6, height: 6)
+            .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 0.5))
+    }
+
+    private var poolModifierButtonRow: some View {
+        LazyVGrid(columns: modifierGridColumns, spacing: 10) {
+            poolModifierButton(title: "ADV", mode: .advantage, labelColor: advIndicatorBlue)
+            poolModifierButton(title: "2X ADV", mode: .doubleAdvantage, labelColor: doubleAdvTeal)
+            poolModifierButton(title: "DIS", mode: .disadvantage, labelColor: disIndicatorRed)
+        }
+        .padding(.top, 6)
+    }
+
+    @ViewBuilder
+    private func poolModifierInCapLedRow(for buttonMode: CalculatorViewModel.PoolAssignmentMode) -> some View {
+        let m = model.poolAssignmentMode
+        switch buttonMode {
+        case .advantage:
+            HStack {
+                Spacer(minLength: 0)
+                modifierIndicatorLed(lit: m == .advantage, color: advIndicatorBlue)
+                Spacer(minLength: 0)
+            }
+        case .doubleAdvantage:
+            HStack(spacing: 3) {
+                Spacer(minLength: 0)
+                modifierIndicatorLed(lit: m == .doubleAdvantage, color: doubleAdvTeal)
+                modifierIndicatorLed(lit: m == .doubleAdvantage, color: doubleAdvTeal)
+                Spacer(minLength: 0)
+            }
+        case .disadvantage:
+            HStack {
+                Spacer(minLength: 0)
+                modifierIndicatorLed(lit: m == .disadvantage, color: disIndicatorRed)
+                Spacer(minLength: 0)
+            }
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private func poolModifierButton(
+        title: String,
+        mode: CalculatorViewModel.PoolAssignmentMode,
+        labelColor: Color
+    ) -> some View {
+        let armed = model.poolAssignmentMode == mode
+        let stroke: Color = armed ? labelColor.opacity(0.95) : Color.white.opacity(0.12)
+        return Button {
+            model.togglePoolAssignmentMode(mode)
+        } label: {
+            VStack(spacing: tableLedToKeySpacing) {
+                poolModifierInCapLedRow(for: mode)
+                    .padding(.top, keyCapLedTopInset)
+
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(labelColor)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.65)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.bottom, 6)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.24, green: 0.22, blue: 0.21),
+                                Color(red: 0.14, green: 0.13, blue: 0.12),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(stroke, lineWidth: armed ? 2 : 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TableCalcKeyButtonStyle())
+        .accessibilityLabel(accessibilityLabelForPoolModifierButton(title: title, mode: mode, armed: armed))
+    }
+
+    private func accessibilityLabelForPoolModifierButton(
+        title: String,
+        mode: CalculatorViewModel.PoolAssignmentMode,
+        armed: Bool
+    ) -> String {
+        let action: String
+        switch mode {
+        case .advantage: action = "advantage, roll twice keep higher"
+        case .doubleAdvantage: action = "double advantage, roll three keep highest"
+        case .disadvantage: action = "disadvantage, roll twice keep lower"
+        case .none: action = ""
+        }
+        if armed {
+            return "\(title), \(action), active, tap to cancel"
+        }
+        return "\(title), \(action), tap to assign to dice"
+    }
+
     private func tieredLEDColor(index: Int, pressCount: Int) -> Color {
         let off = Color(red: 0.15, green: 0.13, blue: 0.12)
         let green = Color(red: 0.22, green: 0.88, blue: 0.38)
@@ -185,59 +311,108 @@ struct VintageCalculatorView: View {
         }
     }
 
+    /// Advantage / double advantage / disadvantage pool LEDs above the die key (leading-aligned with the button).
+    private func diePoolModifierIndicators(die: CalculatorViewModel.DigitalDie) -> some View {
+        let s = model.digitalPoolState
+        let advLit = s.advantage[die, default: 0] > 0
+        let adv2Lit = s.doubleAdvantage[die, default: 0] > 0
+        let disLit = s.disadvantage[die, default: 0] > 0
+        return HStack(spacing: 3) {
+            modifierIndicatorLed(lit: advLit, color: advIndicatorBlue)
+            modifierIndicatorLed(lit: adv2Lit, color: doubleAdvTeal)
+            modifierIndicatorLed(lit: disLit, color: disIndicatorRed)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityHidden(true)
+    }
+
     private func digitalDieColumn(_ die: CalculatorViewModel.DigitalDie) -> some View {
         let presses = model.digitalPressCount(for: die)
         let pool = model.digitalPoolCount(for: die)
         let labelFont = Font.system(size: 17, weight: .semibold, design: .rounded)
         let glyphSize: CGFloat = 17
-        return Button {
-            model.tapDigitalDie(die)
-        } label: {
-            VStack(spacing: tableLedToKeySpacing) {
-                keyCapLedRow(pressCount: presses)
-                    .padding(.top, keyCapLedTopInset)
+        return VStack(alignment: .leading, spacing: 4) {
+            diePoolModifierIndicators(die: die)
 
-                HStack(alignment: .center, spacing: 3) {
-                    DigitalDieGlyphView(die: die)
-                        .frame(width: glyphSize, height: glyphSize)
-                    Text(die == .d100 ? "100" : die.buttonCaption)
-                        .font(labelFont)
-                        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.90))
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
+            Button {
+                model.tapDigitalDie(die)
+            } label: {
+                VStack(spacing: tableLedToKeySpacing) {
+                    keyCapLedRow(pressCount: presses)
+                        .padding(.top, keyCapLedTopInset)
+
+                    HStack(alignment: .center, spacing: 3) {
+                        DigitalDieGlyphView(die: die)
+                            .frame(width: glyphSize, height: glyphSize)
+                        Text(die == .d100 ? "100" : die.buttonCaption)
+                            .font(labelFont)
+                            .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.90))
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.bottom, 6)
                 }
-                .padding(.horizontal, 4)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(.bottom, 6)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.24, green: 0.22, blue: 0.21),
-                                Color(red: 0.14, green: 0.13, blue: 0.12),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.24, green: 0.22, blue: 0.21),
+                                    Color(red: 0.14, green: 0.13, blue: 0.12),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
-            )
-            .contentShape(Rectangle())
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
+                )
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 3) {
+                    model.removeOneDigitalDie(die)
+                }
+            }
+            .buttonStyle(TableCalcKeyButtonStyle())
+            .frame(maxWidth: .infinity)
+            .aspectRatio(keyCapAspectRatio, contentMode: .fit)
+            .accessibilityLabel(digitalDieAccessibilityLabel(die: die, pool: pool, presses: presses))
         }
-        .buttonStyle(TableCalcKeyButtonStyle())
-        .frame(maxWidth: .infinity)
-        .aspectRatio(keyCapAspectRatio, contentMode: .fit)
-        .accessibilityLabel("\(die.buttonCaption), \(pool) dice, \(presses) taps")
     }
 
-    /// Five tier LEDs along the top inside a key cap.
+    private func digitalDieAccessibilityLabel(
+        die: CalculatorViewModel.DigitalDie,
+        pool: Int,
+        presses: Int
+    ) -> String {
+        let mode = model.poolAssignmentMode
+        let modeHint: String
+        switch mode {
+        case .none: modeHint = "add die"
+        case .advantage: modeHint = "assign advantage"
+        case .doubleAdvantage: modeHint = "assign double advantage"
+        case .disadvantage: modeHint = "assign disadvantage"
+        }
+        let s = model.digitalPoolState
+        let a = s.advantage[die, default: 0]
+        let a2 = s.doubleAdvantage[die, default: 0]
+        let d = s.disadvantage[die, default: 0]
+        let modHint: String
+        if a == 0, a2 == 0, d == 0 {
+            modHint = "no advantage or disadvantage dice"
+        } else {
+            modHint = "\(a) advantage, \(a2) double advantage, \(d) disadvantage"
+        }
+        return "\(die.buttonCaption), \(pool) dice, \(presses) taps, \(modHint), \(modeHint), long press three seconds to remove one die"
+    }
+
+    /// Five tier LEDs along the top inside a physical table key cap.
     private func keyCapLedRow(pressCount: Int) -> some View {
         HStack(spacing: 2) {
             ForEach(0 ..< 5, id: \.self) { idx in
