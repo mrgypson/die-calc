@@ -3,6 +3,7 @@ import SwiftUI
 /// Sketch layout: table sum grid (1–20), digital dice pool with LEDs, bottom Clear + ROLL.
 struct VintageCalculatorView: View {
     @ObservedObject var model: CalculatorViewModel
+    @Environment(\.calculatorTheme) private var theme
 
     /// Horizontal gap between table number keys (left / right).
     private let tableColumnSpacing: CGFloat = 12
@@ -21,6 +22,7 @@ struct VintageCalculatorView: View {
     var body: some View {
         ZStack {
             vintageBodyBackground
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     SegmentedReadoutView(
@@ -31,10 +33,13 @@ struct VintageCalculatorView: View {
                         dicePoolSelectionTally: model.dicePoolSelectionTally,
                         diceDetailLine: model.diceDetailLine,
                         diceTotalLine: model.diceTotalLine,
-                        bandMode: model.readoutBandMode
+                        bandMode: model.readoutBandMode,
+                        isSettingsMode: model.isSettingsMode,
+                        settingsTitleLines: model.settingsTitleLines,
+                        settingsFooterLine: model.settingsFooterLine
                     )
 
-                    readoutBandModePhysicalToggle
+                    readoutToolbarRow
 
                     LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
                         ForEach(1 ... 20, id: \.self) { value in
@@ -42,25 +47,29 @@ struct VintageCalculatorView: View {
                         }
                     }
 
-                    Text("Roll pool")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(red: 0.75, green: 0.72, blue: 0.65))
-                        .textCase(.uppercase)
-                        .tracking(1.1)
+                    Group {
+                        Text("Roll pool")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.chrome.sectionLabel)
+                            .textCase(.uppercase)
+                            .tracking(theme.keys.chromeStyle == .macSystem1Raised ? 1.5 : 1.1)
 
-                    poolModifierButtonRow
+                        poolModifierButtonRow
 
-                    LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
-                        ForEach(CalculatorViewModel.DigitalDie.allCases) { die in
-                            digitalDieColumn(die)
+                        LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
+                            ForEach(CalculatorViewModel.DigitalDie.allCases) { die in
+                                digitalDieColumn(die)
+                            }
                         }
-                    }
 
-                    HStack(spacing: 12) {
-                        clearButton
-                        rollButton
+                        HStack(spacing: 12) {
+                            clearButton
+                            rollButton
+                        }
+                        .padding(.top, 4)
                     }
-                    .padding(.top, 4)
+                    .opacity(model.isSettingsMode ? 0.38 : 1)
+                    .allowsHitTesting(!model.isSettingsMode)
                 }
                 .padding(16)
             }
@@ -68,49 +77,49 @@ struct VintageCalculatorView: View {
         .ignoresSafeArea(edges: .bottom)
     }
 
+    @ViewBuilder
     private var vintageBodyBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.12, green: 0.11, blue: 0.10),
-                Color(red: 0.06, green: 0.05, blue: 0.05),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        switch theme.page.background {
+        case .linearGradient(let top, let bottom):
+            LinearGradient(
+                colors: [top, bottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .checkerboardDither:
+            CheckerboardDitherBackground(cellSize: 2)
+        }
     }
 
-    /// Single physical key below the LCD: orange SUM/TOT label; tap toggles sum vs total readout.
-    private var readoutBandModePhysicalToggle: some View {
-        let faceTop = Color(red: 0.34, green: 0.32, blue: 0.30)
-        let faceBottom = Color(red: 0.18, green: 0.16, blue: 0.15)
-        let orangeText = Color(red: 1.0, green: 0.48, blue: 0.12)
+    /// Gear (settings) and SUM/TOT below the LCD.
+    private var readoutToolbarRow: some View {
+        let k = theme.keys
+        let keyCap = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        return HStack(spacing: 12) {
+            Button {
+                model.toggleGear()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(k.sumTotAccent)
+                    .frame(minWidth: 44, minHeight: 40)
+                    .background(toolbarKeyChromeBackground(keys: k, shape: keyCap))
+            }
+            .buttonStyle(TableCalcKeyButtonStyle())
+            .accessibilityLabel(gearAccessibilityLabel)
 
-        return HStack {
             Spacer(minLength: 0)
+
             Button {
                 model.readoutBandMode = model.readoutBandMode == .sum ? .total : .sum
             } label: {
                 Text("SUM/TOT")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .tracking(0.4)
-                    .foregroundStyle(orangeText)
+                    .font(theme.chrome.sumTotLabelFont)
+                    .tracking(theme.keys.chromeStyle == .macSystem1Raised ? 0.6 : 0.4)
+                    .foregroundStyle(k.sumTotAccent)
                     .frame(minWidth: 96, minHeight: 40)
                     .padding(.horizontal, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [faceTop, faceBottom],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
-                    )
+                    .background(toolbarKeyChromeBackground(keys: k, shape: keyCap))
             }
             .buttonStyle(TableCalcKeyButtonStyle())
             .accessibilityLabel(
@@ -122,54 +131,91 @@ struct VintageCalculatorView: View {
         }
     }
 
+    @ViewBuilder
+    private func toolbarKeyChromeBackground(keys k: CalculatorTheme.Keys, shape: RoundedRectangle) -> some View {
+        switch k.chromeStyle {
+        case .roundedGradient:
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [k.sumTotFaceTop, k.sumTotFaceBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(shape.stroke(k.sumTotStroke, lineWidth: 1))
+                .shadow(color: k.keyShadow, radius: 0, y: 2)
+        case .macSystem1Raised:
+            MacRaisedKeyBackground()
+        }
+    }
+
+    private var gearAccessibilityLabel: String {
+        switch model.settingsPhase {
+        case .inactive:
+            return "Settings"
+        case .root:
+            return "Close settings"
+        case .themes:
+            return "Back to settings menu"
+        }
+    }
+
     private func physicalKey(_ value: Int) -> some View {
         let presses = model.physicalPressCount(for: value)
+        let k = theme.keys
         return Button {
-            model.tapPhysicalNumber(value)
+            if model.isSettingsMode {
+                model.handleSettingsKey(value)
+            } else {
+                model.tapPhysicalNumber(value)
+            }
         } label: {
             VStack(spacing: tableLedToKeySpacing) {
                 keyCapLedRow(pressCount: presses)
                     .padding(.top, keyCapLedTopInset)
 
                 Text("\(value)")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.90))
+                    .font(theme.chrome.keyLabelFont)
+                    .tracking(k.chromeStyle == .macSystem1Raised ? 0.4 : 0)
+                    .foregroundStyle(k.label)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .padding(.bottom, 6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.24, green: 0.22, blue: 0.21),
-                                Color(red: 0.14, green: 0.13, blue: 0.12),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
-            )
+            .background(tableKeyCapChromeBackground(keys: k))
             .contentShape(Rectangle())
         }
         .buttonStyle(TableCalcKeyButtonStyle())
         .frame(maxWidth: .infinity)
         .aspectRatio(keyCapAspectRatio, contentMode: .fit)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Table \(value), \(presses) presses, add \(value) to total")
+        .accessibilityLabel(
+            model.isSettingsMode
+                ? model.settingsKeyAccessibilityLabel(key: value)
+                : "Table \(value), \(presses) presses, add \(value) to total"
+        )
     }
 
-    /// Every 5 presses refills 1…5 lights; tier color cycles green → blue → purple → red → orange.
-    private let advIndicatorBlue = Color(red: 0.28, green: 0.62, blue: 1.0)
-    private let doubleAdvTeal = Color(red: 0.22, green: 0.78, blue: 0.76)
-    private let disIndicatorRed = Color(red: 0.95, green: 0.22, blue: 0.22)
-    private let modifierLedOff = Color(red: 0.15, green: 0.13, blue: 0.12)
+    @ViewBuilder
+    private func tableKeyCapChromeBackground(keys k: CalculatorTheme.Keys) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        switch k.chromeStyle {
+        case .roundedGradient:
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [k.faceTop, k.faceBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(shape.stroke(k.stroke, lineWidth: 1))
+                .shadow(color: k.keyShadow, radius: 0, y: 2)
+        case .macSystem1Raised:
+            MacRaisedKeyBackground()
+        }
+    }
 
     private var modifierGridColumns: [GridItem] {
         [
@@ -181,16 +227,17 @@ struct VintageCalculatorView: View {
 
     private func modifierIndicatorLed(lit: Bool, color: Color) -> some View {
         Circle()
-            .fill(lit ? color : modifierLedOff)
+            .fill(lit ? color : theme.modifiers.ledOff)
             .frame(width: 6, height: 6)
             .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 0.5))
     }
 
     private var poolModifierButtonRow: some View {
-        LazyVGrid(columns: modifierGridColumns, spacing: 10) {
-            poolModifierButton(title: "ADV", mode: .advantage, labelColor: advIndicatorBlue)
-            poolModifierButton(title: "2X ADV", mode: .doubleAdvantage, labelColor: doubleAdvTeal)
-            poolModifierButton(title: "DIS", mode: .disadvantage, labelColor: disIndicatorRed)
+        let m = theme.modifiers
+        return LazyVGrid(columns: modifierGridColumns, spacing: 10) {
+            poolModifierButton(title: "ADV", mode: .advantage, labelColor: m.advantage)
+            poolModifierButton(title: "2X ADV", mode: .doubleAdvantage, labelColor: m.doubleAdvantage)
+            poolModifierButton(title: "DIS", mode: .disadvantage, labelColor: m.disadvantage)
         }
         .padding(.top, 6)
     }
@@ -198,24 +245,25 @@ struct VintageCalculatorView: View {
     @ViewBuilder
     private func poolModifierInCapLedRow(for buttonMode: CalculatorViewModel.PoolAssignmentMode) -> some View {
         let m = model.poolAssignmentMode
+        let mod = theme.modifiers
         switch buttonMode {
         case .advantage:
             HStack {
                 Spacer(minLength: 0)
-                modifierIndicatorLed(lit: m == .advantage, color: advIndicatorBlue)
+                modifierIndicatorLed(lit: m == .advantage, color: mod.advantage)
                 Spacer(minLength: 0)
             }
         case .doubleAdvantage:
             HStack(spacing: 3) {
                 Spacer(minLength: 0)
-                modifierIndicatorLed(lit: m == .doubleAdvantage, color: doubleAdvTeal)
-                modifierIndicatorLed(lit: m == .doubleAdvantage, color: doubleAdvTeal)
+                modifierIndicatorLed(lit: m == .doubleAdvantage, color: mod.doubleAdvantage)
+                modifierIndicatorLed(lit: m == .doubleAdvantage, color: mod.doubleAdvantage)
                 Spacer(minLength: 0)
             }
         case .disadvantage:
             HStack {
                 Spacer(minLength: 0)
-                modifierIndicatorLed(lit: m == .disadvantage, color: disIndicatorRed)
+                modifierIndicatorLed(lit: m == .disadvantage, color: mod.disadvantage)
                 Spacer(minLength: 0)
             }
         case .none:
@@ -229,7 +277,8 @@ struct VintageCalculatorView: View {
         labelColor: Color
     ) -> some View {
         let armed = model.poolAssignmentMode == mode
-        let stroke: Color = armed ? labelColor.opacity(0.95) : Color.white.opacity(0.12)
+        let k = theme.keys
+        let stroke: Color = armed ? labelColor.opacity(0.95) : k.stroke
         return Button {
             model.togglePoolAssignmentMode(mode)
         } label: {
@@ -238,7 +287,7 @@ struct VintageCalculatorView: View {
                     .padding(.top, keyCapLedTopInset)
 
                 Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(theme.chrome.modifierLabelFont)
                     .foregroundStyle(labelColor)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.65)
@@ -248,28 +297,47 @@ struct VintageCalculatorView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.24, green: 0.22, blue: 0.21),
-                                Color(red: 0.14, green: 0.13, blue: 0.12),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(stroke, lineWidth: armed ? 2 : 1)
-            )
-            .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
+            .background(poolModifierKeyBackground(keys: k))
+            .overlay(poolModifierKeyOverlay(keys: k, stroke: stroke, armed: armed))
+            .shadow(color: k.keyShadow, radius: 0, y: k.chromeStyle == .macSystem1Raised ? 0 : 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(TableCalcKeyButtonStyle())
         .accessibilityLabel(accessibilityLabelForPoolModifierButton(title: title, mode: mode, armed: armed))
+    }
+
+    @ViewBuilder
+    private func poolModifierKeyBackground(keys k: CalculatorTheme.Keys) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        switch k.chromeStyle {
+        case .roundedGradient:
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [k.faceTop, k.faceBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        case .macSystem1Raised:
+            MacRaisedKeyBackground()
+        }
+    }
+
+    @ViewBuilder
+    private func poolModifierKeyOverlay(keys k: CalculatorTheme.Keys, stroke: Color, armed: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        switch k.chromeStyle {
+        case .roundedGradient:
+            shape
+                .stroke(stroke, lineWidth: armed ? 2 : 1)
+        case .macSystem1Raised:
+            if armed {
+                Rectangle()
+                    .strokeBorder(stroke, lineWidth: 2)
+                    .padding(4)
+            }
+        }
     }
 
     private func accessibilityLabelForPoolModifierButton(
@@ -290,37 +358,17 @@ struct VintageCalculatorView: View {
         return "\(title), \(action), tap to assign to dice"
     }
 
-    private func tieredLEDColor(index: Int, pressCount: Int) -> Color {
-        let off = Color(red: 0.15, green: 0.13, blue: 0.12)
-        let green = Color(red: 0.22, green: 0.88, blue: 0.38)
-        let blue = Color(red: 0.28, green: 0.62, blue: 1.0)
-        let purple = Color(red: 0.62, green: 0.32, blue: 0.92)
-        let red = Color(red: 0.95, green: 0.22, blue: 0.22)
-        let orange = Color(red: 1.0, green: 0.48, blue: 0.12)
-
-        guard pressCount > 0 else { return off }
-        let litInTier = (pressCount - 1) % 5 + 1
-        guard index < litInTier else { return off }
-        let colorTier = ((pressCount - 1) / 5) % 5
-        switch colorTier {
-        case 0: return green
-        case 1: return blue
-        case 2: return purple
-        case 3: return red
-        default: return orange
-        }
-    }
-
     /// Advantage / double advantage / disadvantage pool LEDs above the die key (leading-aligned with the button).
     private func diePoolModifierIndicators(die: CalculatorViewModel.DigitalDie) -> some View {
         let s = model.digitalPoolState
+        let mod = theme.modifiers
         let advLit = s.advantage[die, default: 0] > 0
         let adv2Lit = s.doubleAdvantage[die, default: 0] > 0
         let disLit = s.disadvantage[die, default: 0] > 0
         return HStack(spacing: 3) {
-            modifierIndicatorLed(lit: advLit, color: advIndicatorBlue)
-            modifierIndicatorLed(lit: adv2Lit, color: doubleAdvTeal)
-            modifierIndicatorLed(lit: disLit, color: disIndicatorRed)
+            modifierIndicatorLed(lit: advLit, color: mod.advantage)
+            modifierIndicatorLed(lit: adv2Lit, color: mod.doubleAdvantage)
+            modifierIndicatorLed(lit: disLit, color: mod.disadvantage)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
@@ -330,7 +378,8 @@ struct VintageCalculatorView: View {
     private func digitalDieColumn(_ die: CalculatorViewModel.DigitalDie) -> some View {
         let presses = model.digitalPressCount(for: die)
         let pool = model.digitalPoolCount(for: die)
-        let labelFont = Font.system(size: 17, weight: .semibold, design: .rounded)
+        let k = theme.keys
+        let labelFont = theme.chrome.keyLabelFont
         let glyphSize: CGFloat = 17
         return VStack(alignment: .leading, spacing: 4) {
             diePoolModifierIndicators(die: die)
@@ -343,11 +392,11 @@ struct VintageCalculatorView: View {
                         .padding(.top, keyCapLedTopInset)
 
                     HStack(alignment: .center, spacing: 3) {
-                        DigitalDieGlyphView(die: die)
+                        DigitalDieGlyphView(die: die, fill: theme.chrome.dieGlyph)
                             .frame(width: glyphSize, height: glyphSize)
                         Text(die == .d100 ? "100" : die.buttonCaption)
                             .font(labelFont)
-                            .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.90))
+                            .foregroundStyle(k.label)
                             .minimumScaleFactor(0.5)
                             .lineLimit(1)
                     }
@@ -356,24 +405,7 @@ struct VintageCalculatorView: View {
                     .padding(.bottom, 6)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.24, green: 0.22, blue: 0.21),
-                                    Color(red: 0.14, green: 0.13, blue: 0.12),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
-                        .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
-                )
+                .background(tableKeyCapChromeBackground(keys: k))
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 3) {
                     model.removeOneDigitalDie(die)
@@ -417,7 +449,7 @@ struct VintageCalculatorView: View {
         HStack(spacing: 2) {
             ForEach(0 ..< 5, id: \.self) { idx in
                 Circle()
-                    .fill(tieredLEDColor(index: idx, pressCount: pressCount))
+                    .fill(theme.tieredLEDColor(index: idx, pressCount: pressCount))
                     .frame(width: 5, height: 5)
                     .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 0.5))
             }
@@ -426,30 +458,18 @@ struct VintageCalculatorView: View {
     }
 
     private var clearButton: some View {
-        Button(action: { model.clearAll() }) {
+        let a = theme.actions
+        let k = theme.keys
+        return Button(action: { model.clearAll() }) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.32, green: 0.22, blue: 0.20),
-                                Color(red: 0.22, green: 0.14, blue: 0.12),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
+                actionButtonChrome(keys: k, actions: a, kind: .clear)
                 ZStack {
                     Circle()
-                        .stroke(Color(red: 0.92, green: 0.88, blue: 0.82), lineWidth: 2)
+                        .stroke(a.clearIconRing, lineWidth: 2)
                         .frame(width: 28, height: 28)
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(red: 0.95, green: 0.92, blue: 0.88))
+                        .font(a.clearIconFont)
+                        .foregroundStyle(a.clearIcon)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -460,32 +480,134 @@ struct VintageCalculatorView: View {
     }
 
     private var rollButton: some View {
-        Button(action: { model.rollDigital() }) {
+        let a = theme.actions
+        let k = theme.keys
+        return Button(action: { model.rollDigital() }) {
             Text("ROLL")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+                .font(a.rollTitleFont)
+                .tracking(k.chromeStyle == .macSystem1Raised ? 0.8 : 0)
+                .foregroundStyle(a.rollForeground)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.92, green: 0.88, blue: 0.78),
-                                    Color(red: 0.72, green: 0.68, blue: 0.58),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                        )
-                )
+                .background(actionButtonChrome(keys: k, actions: a, kind: .roll))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Roll digital dice")
+    }
+
+    private enum ActionPadKind {
+        case clear
+        case roll
+    }
+
+    @ViewBuilder
+    private func actionButtonChrome(keys k: CalculatorTheme.Keys, actions a: CalculatorTheme.Actions, kind: ActionPadKind) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        switch k.chromeStyle {
+        case .roundedGradient:
+            switch kind {
+            case .clear:
+                shape
+                    .fill(
+                        LinearGradient(
+                            colors: [a.clearTop, a.clearBottom],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay(shape.stroke(a.clearStroke, lineWidth: 1))
+            case .roll:
+                shape
+                    .fill(
+                        LinearGradient(
+                            colors: [a.rollTop, a.rollBottom],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay(shape.stroke(a.rollStroke, lineWidth: 1))
+            }
+        case .macSystem1Raised:
+            MacRaisedKeyBackground()
+        }
+    }
+}
+
+// MARK: - Classic Mac raised key chrome
+
+/// System 1–style control: 1 pt top/left frame, solid bottom/right shadow (raised look).
+private struct MacRaisedKeyBackground: View {
+    var faceColor: Color = .white
+    var frameColor: Color = .black
+    private let edgeWidth: CGFloat = 1
+    private let shadowDepth: CGFloat = 3
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+            guard w > edgeWidth + shadowDepth, h > edgeWidth + shadowDepth else { return }
+            // Bottom shadow
+            context.fill(
+                Path(CGRect(x: 0, y: h - shadowDepth, width: w, height: shadowDepth)),
+                with: .color(frameColor)
+            )
+            // Right shadow
+            context.fill(
+                Path(CGRect(x: w - shadowDepth, y: 0, width: shadowDepth, height: h - shadowDepth)),
+                with: .color(frameColor)
+            )
+            // Top edge
+            context.fill(
+                Path(CGRect(x: 0, y: 0, width: w - shadowDepth, height: edgeWidth)),
+                with: .color(frameColor)
+            )
+            // Left edge
+            context.fill(
+                Path(CGRect(x: 0, y: edgeWidth, width: edgeWidth, height: h - shadowDepth - edgeWidth)),
+                with: .color(frameColor)
+            )
+            // Face
+            context.fill(
+                Path(
+                    CGRect(
+                        x: edgeWidth,
+                        y: edgeWidth,
+                        width: w - shadowDepth - edgeWidth,
+                        height: h - shadowDepth - edgeWidth
+                    )
+                ),
+                with: .color(faceColor)
+            )
+        }
+    }
+}
+
+// MARK: - Antique Apple page fill
+
+/// 1-bit “gray” desktop: alternating black/white cells (classic Mac dither).
+private struct CheckerboardDitherBackground: View {
+    var cellSize: CGFloat = 2
+
+    var body: some View {
+        Canvas { context, size in
+            guard cellSize > 0 else { return }
+            let cols = Int(ceil(size.width / cellSize))
+            let rows = Int(ceil(size.height / cellSize))
+            for row in 0 ..< rows {
+                for col in 0 ..< cols {
+                    let isBlack = (row + col) % 2 == 0
+                    let rect = CGRect(
+                        x: CGFloat(col) * cellSize,
+                        y: CGFloat(row) * cellSize,
+                        width: cellSize,
+                        height: cellSize
+                    )
+                    context.fill(Path(rect), with: .color(isBlack ? .black : .white))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -501,9 +623,10 @@ private struct TableCalcKeyButtonStyle: ButtonStyle {
 
 // MARK: - Roll pool shapes
 
-/// Solid white die glyph, drawn to fit a square about the same size as the pool key label (17pt).
+/// Solid die glyph, drawn to fit a square about the same size as the pool key label (17pt).
 private struct DigitalDieGlyphView: View {
     let die: CalculatorViewModel.DigitalDie
+    let fill: Color
 
     var body: some View {
         GeometryReader { geo in
@@ -513,26 +636,26 @@ private struct DigitalDieGlyphView: View {
                 switch die {
                 case .d4:
                     TriangleShape()
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d6:
                     RoundedRectangle(cornerRadius: corner, style: .continuous)
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d8:
                     OctagonShape()
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d10:
                     DiamondShape()
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d12:
                     PentagonShape()
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d20:
                     HexagonShape()
-                        .fill(Color.white)
+                        .fill(fill)
                 case .d100:
                     Text("%")
                         .font(.system(size: s * 0.92, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(fill)
                         .minimumScaleFactor(0.25)
                         .lineLimit(1)
                 }
@@ -609,4 +732,10 @@ private func polygonPath(in rect: CGRect, sides: Int, phase: CGFloat) -> Path {
 
 #Preview {
     VintageCalculatorView(model: CalculatorViewModel())
+        .calculatorTheme(.vintage)
+}
+
+#Preview("Antique Apple") {
+    VintageCalculatorView(model: CalculatorViewModel())
+        .calculatorTheme(.antiqueApple)
 }

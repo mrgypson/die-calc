@@ -13,6 +13,12 @@
 		2F7C8E1D0000000000000013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000006 /* Assets.xcassets */; };
 		2F7C8E1D0000000000000014 /* DieCalcCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2F7C8E1D0000000000000016 /* DieCalcCore */; };
 		2F7C8E1D000000000000001A /* SegmentedReadoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000019 /* SegmentedReadoutView.swift */; };
+		2F7C8E1D0000000000000050 /* CalculatorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000040 /* CalculatorTheme.swift */; };
+		2F7C8E1D0000000000000051 /* CalculatorSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000041 /* CalculatorSkin.swift */; };
+		2F7C8E1D0000000000000052 /* CalculatorTheme+Vintage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000042 /* CalculatorTheme+Vintage.swift */; };
+		2F7C8E1D0000000000000053 /* CalculatorTheme+HighContrast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000043 /* CalculatorTheme+HighContrast.swift */; };
+		2F7C8E1D0000000000000054 /* CalculatorTheme+Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000044 /* CalculatorTheme+Environment.swift */; };
+		2F7C8E1D0000000000000055 /* CalculatorTheme+AntiqueApple.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7C8E1D0000000000000046 /* CalculatorTheme+AntiqueApple.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +28,12 @@
 		2F7C8E1D0000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2F7C8E1D0000000000000007 /* DieCalc.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DieCalc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F7C8E1D0000000000000019 /* SegmentedReadoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentedReadoutView.swift; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000040 /* CalculatorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculatorTheme.swift; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000041 /* CalculatorSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculatorSkin.swift; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000042 /* CalculatorTheme+Vintage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CalculatorTheme+Vintage.swift"; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000043 /* CalculatorTheme+HighContrast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CalculatorTheme+HighContrast.swift"; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000044 /* CalculatorTheme+Environment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CalculatorTheme+Environment.swift"; sourceTree = "<group>"; };
+		2F7C8E1D0000000000000046 /* CalculatorTheme+AntiqueApple.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CalculatorTheme+AntiqueApple.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,11 +60,25 @@
 			isa = PBXGroup;
 			children = (
 				2F7C8E1D0000000000000003 /* DieCalcApp.swift */,
+				2F7C8E1D0000000000000045 /* Theme */,
 				2F7C8E1D000000000000000E /* UI */,
 				2F7C8E1D000000000000000F /* ViewModels */,
 				2F7C8E1D0000000000000006 /* Assets.xcassets */,
 			);
 			path = DieCalc;
+			sourceTree = "<group>";
+		};
+		2F7C8E1D0000000000000045 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				2F7C8E1D0000000000000040 /* CalculatorTheme.swift */,
+				2F7C8E1D0000000000000041 /* CalculatorSkin.swift */,
+				2F7C8E1D0000000000000042 /* CalculatorTheme+Vintage.swift */,
+				2F7C8E1D0000000000000043 /* CalculatorTheme+HighContrast.swift */,
+				2F7C8E1D0000000000000046 /* CalculatorTheme+AntiqueApple.swift */,
+				2F7C8E1D0000000000000044 /* CalculatorTheme+Environment.swift */,
+			);
+			path = Theme;
 			sourceTree = "<group>";
 		};
 		2F7C8E1D000000000000000D /* Products */ = {
@@ -156,6 +182,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				2F7C8E1D0000000000000010 /* DieCalcApp.swift in Sources */,
+				2F7C8E1D0000000000000050 /* CalculatorTheme.swift in Sources */,
+				2F7C8E1D0000000000000051 /* CalculatorSkin.swift in Sources */,
+				2F7C8E1D0000000000000052 /* CalculatorTheme+Vintage.swift in Sources */,
+				2F7C8E1D0000000000000053 /* CalculatorTheme+HighContrast.swift in Sources */,
+				2F7C8E1D0000000000000055 /* CalculatorTheme+AntiqueApple.swift in Sources */,
+				2F7C8E1D0000000000000054 /* CalculatorTheme+Environment.swift in Sources */,
 				2F7C8E1D0000000000000011 /* VintageCalculatorView.swift in Sources */,
 				2F7C8E1D000000000000001A /* SegmentedReadoutView.swift in Sources */,
 				2F7C8E1D0000000000000012 /* CalculatorViewModel.swift in Sources */,

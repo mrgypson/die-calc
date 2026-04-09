@@ -62,8 +62,195 @@ final class CalculatorViewModel: ObservableObject {
     /// After a long-press remove, the same touch can still deliver a button tap; skip one add for that die.
     private var skipNextTapForDie: DigitalDie?
 
+    /// Set from `CalculatorRootView.onAppear` so theme picks persist via `AppStorage`.
+    var applySkin: ((CalculatorSkin) -> Void)?
+
+    // MARK: - Settings (LCD + keypad)
+
+    enum SettingsPhase: Equatable {
+        case inactive
+        case root
+        case themes(page: Int)
+    }
+
+    @Published private(set) var settingsPhase: SettingsPhase = .inactive
+
+    /// Max lines in the settings LCD block (menu + optional 19/20 rows).
+    private static let settingsMenuMaxLines = 5
+
+    var isSettingsMode: Bool {
+        settingsPhase != .inactive
+    }
+
     var readoutCaption: String {
-        showingTableReadout ? "Table" : "Dice"
+        if isSettingsMode { return "SETTINGS" }
+        return showingTableReadout ? "Table" : "Dice"
+    }
+
+    /// Multiline menu text for `SegmentedReadoutView` when `isSettingsMode`.
+    var settingsTitleLines: [String] {
+        switch settingsPhase {
+        case .inactive:
+            return []
+        case .root:
+            return ["1 - THEMES"]
+        case .themes(let page):
+            return Self.buildThemesMenuLines(page: page)
+        }
+    }
+
+    var settingsFooterLine: String? {
+        isSettingsMode ? "SUM/TOT · SELECT" : nil
+    }
+
+    func toggleGear() {
+        switch settingsPhase {
+        case .inactive:
+            settingsPhase = .root
+            readoutBandMode = .sum
+            impactLight.prepare()
+            impactLight.impactOccurred(intensity: 0.45)
+        case .root:
+            exitSettings()
+        case .themes:
+            settingsPhase = .root
+            impactLight.prepare()
+            impactLight.impactOccurred(intensity: 0.4)
+        }
+    }
+
+    func exitSettings() {
+        settingsPhase = .inactive
+        impactLight.prepare()
+        impactLight.impactOccurred(intensity: 0.35)
+    }
+
+    func handleSettingsKey(_ key: Int) {
+        guard (1 ... 20).contains(key) else { return }
+        switch settingsPhase {
+        case .inactive:
+            return
+        case .root:
+            handleSettingsRootKey(key)
+        case .themes(let page):
+            handleSettingsThemesKey(key, page: page)
+        }
+    }
+
+    private func handleSettingsRootKey(_ key: Int) {
+        switch key {
+        case 1:
+            settingsPhase = .themes(page: 0)
+            impactLight.prepare()
+            impactLight.impactOccurred(intensity: 0.5)
+        default:
+            break
+        }
+    }
+
+    private func handleSettingsThemesKey(_ key: Int, page: Int) {
+        let skins = Array(CalculatorSkin.allCases)
+        let n = skins.count
+        if key == 19 {
+            if page > 0 {
+                settingsPhase = .themes(page: page - 1)
+            } else {
+                settingsPhase = .root
+            }
+            impactLight.prepare()
+            impactLight.impactOccurred(intensity: 0.45)
+            return
+        }
+        if key == 20 {
+            let layout = Self.themePageLayout(page: page, totalCount: n)
+            if layout.hasMore {
+                settingsPhase = .themes(page: page + 1)
+                impactLight.prepare()
+                impactLight.impactOccurred(intensity: 0.45)
+            }
+            return
+        }
+        let visible = Self.visibleThemeGlobalIndices(page: page, totalCount: n)
+        guard visible.contains(key - 1) else { return }
+        let skin = skins[key - 1]
+        applySkin?(skin)
+        settingsPhase = .root
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        impactMedium.prepare()
+        impactMedium.impactOccurred(intensity: 0.7)
+    }
+
+    /// Walks cumulative slices so page index matches `themes(page:)`.
+    private static func themePageLayout(page: Int, totalCount: Int) -> (start: Int, count: Int, hasMore: Bool, lines: [String]) {
+        guard totalCount > 0 else { return (0, 0, false, []) }
+        var start = 0
+        for _ in 0 ..< page {
+            let cur = themePageLayoutSingle(start: start, totalCount: totalCount)
+            guard cur.count > 0 else { return (0, 0, false, []) }
+            start += cur.count
+            if start >= totalCount { return (0, 0, false, []) }
+        }
+        return themePageLayoutSingle(start: start, totalCount: totalCount)
+    }
+
+    /// One themes page: up to `settingsMenuMaxLines - 2` rows if MORE is needed, else fill remaining with BACK only.
+    private static func themePageLayoutSingle(start: Int, totalCount: Int) -> (start: Int, count: Int, hasMore: Bool, lines: [String]) {
+        let skins = Array(CalculatorSkin.allCases)
+        let remaining = totalCount - start
+        guard remaining > 0 else { return (start, 0, false, []) }
+        let capWithMoreNav = max(1, settingsMenuMaxLines - 2)
+        let count: Int
+        let showMoreRow: Bool
+        if remaining > capWithMoreNav {
+            count = capWithMoreNav
+            showMoreRow = true
+        } else {
+            count = remaining
+            showMoreRow = false
+        }
+        let slice = skins[start ..< start + count]
+        var lines: [String] = slice.enumerated().map { idx, skin in
+            "\(start + idx + 1) - \(skin.displayName.uppercased())"
+        }
+        lines.append("19 - BACK")
+        if showMoreRow {
+            lines.append("20 - MORE")
+        }
+        let hasMore = start + count < totalCount
+        return (start, count, hasMore, lines)
+    }
+
+    private static func buildThemesMenuLines(page: Int) -> [String] {
+        let n = CalculatorSkin.allCases.count
+        return themePageLayout(page: page, totalCount: n).lines
+    }
+
+    private static func visibleThemeGlobalIndices(page: Int, totalCount: Int) -> [Int] {
+        let layout = themePageLayout(page: page, totalCount: totalCount)
+        return Array(layout.start ..< layout.start + layout.count)
+    }
+
+    func settingsKeyAccessibilityLabel(key: Int) -> String {
+        switch settingsPhase {
+        case .inactive:
+            return "Key \(key)"
+        case .root:
+            if key == 1 { return "Themes, open theme list" }
+            return "Settings, key \(key)"
+        case .themes(let page):
+            let n = CalculatorSkin.allCases.count
+            let visible = Self.visibleThemeGlobalIndices(page: page, totalCount: n)
+            if visible.contains(key - 1) {
+                let skin = Array(CalculatorSkin.allCases)[key - 1]
+                return "Theme \(skin.displayName)"
+            }
+            if key == 19 { return "Back" }
+            if key == 20 {
+                let layout = Self.themePageLayout(page: page, totalCount: n)
+                return layout.hasMore ? "More themes" : "Key 20"
+            }
+            return "Settings, key \(key)"
+        }
     }
 
     /// Table LCD: two-digit style total.
@@ -131,6 +318,7 @@ final class CalculatorViewModel: ObservableObject {
 
     func tapPhysicalNumber(_ value: Int) {
         guard (1 ... 20).contains(value) else { return }
+        guard !isSettingsMode else { return }
         clearDigitalState()
         showingTableReadout = true
         physicalRunningTotal += value
@@ -226,8 +414,12 @@ final class CalculatorViewModel: ObservableObject {
         impactLight.impactOccurred(intensity: 0.35)
     }
 
-    /// Clears table total and digital dice state.
+    /// Clears table total and digital dice state. In settings, exits without clearing the calculator.
     func clearAll() {
+        if isSettingsMode {
+            exitSettings()
+            return
+        }
         clearPhysicalState()
         clearDigitalState()
         showingTableReadout = true

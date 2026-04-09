@@ -2,6 +2,8 @@ import SwiftUI
 
 /// LCD: pale green panel. SUM mode = expression band only; TOT mode = large digit readout only.
 struct SegmentedReadoutView: View {
+    @Environment(\.calculatorTheme) private var theme
+
     let caption: String
     let isTableReadout: Bool
     /// Table mode only.
@@ -16,27 +18,28 @@ struct SegmentedReadoutView: View {
     let diceTotalLine: String
     let bandMode: CalculatorViewModel.ReadoutBandMode
 
-    /// Muted olive-gray LCD background (~#b8c3a9).
-    private let lcdBackground = Color(red: 0.722, green: 0.765, blue: 0.663)
-    /// Dark charcoal segments (~#3a3d3a).
-    private let lcdForeground = Color(red: 0.227, green: 0.239, blue: 0.227)
-    /// Slightly lighter for secondary / inactive glyphs.
-    private let lcdForegroundDim = Color(red: 0.227, green: 0.239, blue: 0.227).opacity(0.72)
-    /// Fixed band for expression lines so layout stays stable.
+    var isSettingsMode: Bool = false
+    var settingsTitleLines: [String] = []
+    var settingsFooterLine: String?
+
+    /// Fixed band for expression lines so layout stays stable (calculator modes).
     private let expressionBandHeight: CGFloat = 56
 
     var body: some View {
+        let lcd = theme.lcd
         VStack(spacing: 0) {
             Text(caption.uppercased())
-                .font(.system(size: 9, weight: .bold, design: .default))
-                .foregroundStyle(lcdForegroundDim)
-                .tracking(0.8)
+                .font(lcd.captionFont)
+                .foregroundStyle(lcd.foregroundDim)
+                .tracking(theme.keys.chromeStyle == .macSystem1Raised ? 0.5 : 0.8)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 6)
                 .padding(.bottom, 4)
 
             VStack(alignment: .leading, spacing: 0) {
-                if bandMode == .sum {
+                if isSettingsMode {
+                    settingsMenuBlock
+                } else if bandMode == .sum {
                     expressionBand
                 } else {
                     primaryReadout(text: isTableReadout ? tableText : diceTotalLine)
@@ -49,28 +52,60 @@ struct SegmentedReadoutView: View {
         .background(lcdBezelBackground)
     }
 
+    private var settingsMenuBlock: some View {
+        let lcd = theme.lcd
+        return VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(settingsTitleLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(lcd.expressionFont)
+                    .foregroundStyle(lcd.foreground)
+                    .tracking(0.5)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.55)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let footer = settingsFooterLine {
+                Text(footer)
+                    .font(lcd.expressionSmallFont)
+                    .foregroundStyle(lcd.foregroundDim)
+                    .tracking(0.6)
+                    .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(minHeight: settingsBandMinHeight, alignment: .topLeading)
+    }
+
+    private var settingsBandMinHeight: CGFloat {
+        let lineCount = settingsTitleLines.count + (settingsFooterLine != nil ? 1 : 0)
+        let base: CGFloat = 8
+        let perLine: CGFloat = 16
+        return max(expressionBandHeight, base + CGFloat(max(lineCount, 1)) * perLine)
+    }
+
     private var expressionBand: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let lcd = theme.lcd
+        return VStack(alignment: .leading, spacing: 3) {
             if isTableReadout {
                 Text(tableExpressionLine)
-                    .font(dotMatrixFont)
-                    .foregroundStyle(lcdForeground)
+                    .font(lcd.expressionFont)
+                    .foregroundStyle(lcd.foreground)
                     .tracking(tableExpressionLine == "SUM" ? 1 : 0.6)
                     .lineLimit(1)
                     .minimumScaleFactor(0.45)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(dicePoolSelectionTally.isEmpty ? "—" : dicePoolSelectionTally)
-                    .font(dotMatrixFont)
-                    .foregroundStyle(lcdForeground)
+                    .font(lcd.expressionFont)
+                    .foregroundStyle(lcd.foreground)
                     .tracking(0.6)
                     .lineLimit(1)
                     .minimumScaleFactor(0.45)
 
                 if !diceDetailLine.isEmpty {
                     Text(diceDetailLine)
-                        .font(dotMatrixFontSmall)
-                        .foregroundStyle(lcdForegroundDim)
+                        .font(lcd.expressionSmallFont)
+                        .foregroundStyle(lcd.foregroundDim)
                         .lineLimit(2)
                         .minimumScaleFactor(0.5)
                         .multilineTextAlignment(.leading)
@@ -81,27 +116,32 @@ struct SegmentedReadoutView: View {
         .frame(height: expressionBandHeight, alignment: .topLeading)
     }
 
-    private var dotMatrixFont: Font {
-        .system(size: 13, weight: .semibold, design: .monospaced)
-    }
-
-    private var dotMatrixFontSmall: Font {
-        .system(size: 11, weight: .medium, design: .monospaced)
-    }
-
+    @ViewBuilder
     private func primaryReadout(text: String) -> some View {
+        let lcd = theme.lcd
         let display = formatLCDPrimaryDisplay(text)
-        return Text(display)
-            .font(.system(size: 46, weight: .heavy, design: .rounded))
-            .italic()
-            .tracking(5)
-            .foregroundStyle(lcdForeground)
-            .shadow(color: lcdForeground.opacity(0.35), radius: 0, x: 0.6, y: 0)
-            .shadow(color: lcdForeground.opacity(0.2), radius: 1.5, x: 0, y: 0)
-            .minimumScaleFactor(0.28)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.horizontal, 2)
+        if lcd.primaryReadoutItalic {
+            Text(display)
+                .font(lcd.primaryReadoutFont)
+                .italic()
+                .tracking(5)
+                .foregroundStyle(lcd.foreground)
+                .shadow(color: lcd.foreground.opacity(0.35), radius: 0, x: 0.6, y: 0)
+                .shadow(color: lcd.foreground.opacity(0.2), radius: 1.5, x: 0, y: 0)
+                .minimumScaleFactor(0.28)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 2)
+        } else {
+            Text(display)
+                .font(lcd.primaryReadoutFont)
+                .tracking(5)
+                .foregroundStyle(lcd.foreground)
+                .minimumScaleFactor(0.28)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 2)
+        }
     }
 
     /// Keeps zero-padded table totals; adds `'` thousands separators for larger integers.
@@ -117,35 +157,41 @@ struct SegmentedReadoutView: View {
         return formatter.string(from: NSNumber(value: value)) ?? text
     }
 
+    @ViewBuilder
     private var lcdBezelBackground: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(lcdBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.black.opacity(0.22), lineWidth: 1)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.28),
-                                Color.black.opacity(0.06),
-                                Color.white.opacity(0.12),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 2
-                    )
-                    .padding(1)
-            }
-            .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                    .padding(-0.5)
-            )
+        let lcd = theme.lcd
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        if lcd.useFlatBezel {
+            shape
+                .fill(lcd.panelBackground)
+                .overlay(shape.strokeBorder(lcd.bezelOuterStroke, lineWidth: 1))
+                .shadow(color: lcd.bezelShadow, radius: 1, x: 0, y: 1)
+        } else {
+            shape
+                .fill(lcd.panelBackground)
+                .overlay(
+                    shape
+                        .strokeBorder(lcd.bezelOuterStroke, lineWidth: 1)
+                )
+                .overlay {
+                    shape
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: lcd.bezelInnerGradient,
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 2
+                        )
+                        .padding(1)
+                }
+                .shadow(color: lcd.bezelShadow, radius: 3, x: 0, y: 2)
+                .overlay(
+                    shape
+                        .stroke(lcd.bezelHighlightStroke, lineWidth: 1)
+                        .padding(-0.5)
+                )
+        }
     }
 }
 
@@ -162,6 +208,19 @@ struct SegmentedReadoutView: View {
             bandMode: .sum
         )
         SegmentedReadoutView(
+            caption: "SETTINGS",
+            isTableReadout: true,
+            tableText: "",
+            tableExpressionLine: "",
+            dicePoolSelectionTally: "",
+            diceDetailLine: "",
+            diceTotalLine: "",
+            bandMode: .sum,
+            isSettingsMode: true,
+            settingsTitleLines: ["1 - THEMES"],
+            settingsFooterLine: "SUM/TOT · SELECT"
+        )
+        SegmentedReadoutView(
             caption: "Dice",
             isTableReadout: false,
             tableText: "",
@@ -173,6 +232,7 @@ struct SegmentedReadoutView: View {
         )
     }
     .padding()
+    .calculatorTheme(.vintage)
     .background(
         LinearGradient(
             colors: [
@@ -183,4 +243,36 @@ struct SegmentedReadoutView: View {
             endPoint: .bottomTrailing
         )
     )
+}
+
+#Preview("Antique Apple") {
+    SegmentedReadoutView(
+        caption: "Table",
+        isTableReadout: true,
+        tableText: "42",
+        tableExpressionLine: "1+1+5=7",
+        dicePoolSelectionTally: "",
+        diceDetailLine: "",
+        diceTotalLine: "",
+        bandMode: .sum
+    )
+    .padding()
+    .calculatorTheme(.antiqueApple)
+    .background(Color(white: 0.5))
+}
+
+#Preview("Antique Apple total") {
+    SegmentedReadoutView(
+        caption: "Dice",
+        isTableReadout: false,
+        tableText: "",
+        tableExpressionLine: "",
+        dicePoolSelectionTally: "2d6",
+        diceDetailLine: "d6[4,3]=7",
+        diceTotalLine: "7",
+        bandMode: .total
+    )
+    .padding()
+    .calculatorTheme(.antiqueApple)
+    .background(Color(white: 0.5))
 }
