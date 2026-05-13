@@ -11,6 +11,12 @@ final class CalculatorViewModel: ObservableObject {
         case total
     }
 
+    /// Which calculator panel is primary: 1–20 sum vs roll pool (normal mode only; settings shows both).
+    enum PrimaryCalculatorMode: String, CaseIterable, Hashable {
+        case add
+        case roll
+    }
+
     enum DigitalDie: Int, CaseIterable, Identifiable, Hashable {
         case d4 = 4
         case d6 = 6
@@ -25,6 +31,9 @@ final class CalculatorViewModel: ObservableObject {
 
         /// Shown in the selection summary, e.g. `2d6` / `2d100`. Pool key text for d100 is `100` beside the `%` glyph in the view.
         var buttonCaption: String { "d\(rawValue)" }
+
+        /// Key cap numeral only (row is framed with “D” in the UI).
+        var keyFaceNumber: String { "\(rawValue)" }
     }
 
     /// Active modifier when tapping dice after ADV / 2X ADV / DIS.
@@ -53,6 +62,8 @@ final class CalculatorViewModel: ObservableObject {
 
     /// `true` = readout shows table total; `false` = readout shows dice selection / roll / error.
     @Published private(set) var showingTableReadout: Bool = true
+
+    @Published private(set) var primaryCalculatorMode: PrimaryCalculatorMode = .add
 
     @Published var readoutBandMode: ReadoutBandMode = .sum
 
@@ -84,7 +95,7 @@ final class CalculatorViewModel: ObservableObject {
 
     var readoutCaption: String {
         if isSettingsMode { return "SETTINGS" }
-        return showingTableReadout ? "Table" : "Dice"
+        return showingTableReadout ? "Add" : "Roll"
     }
 
     /// Multiline menu text for `SegmentedReadoutView` when `isSettingsMode`.
@@ -100,7 +111,20 @@ final class CalculatorViewModel: ObservableObject {
     }
 
     var settingsFooterLine: String? {
-        isSettingsMode ? "SUM/TOT · SELECT" : nil
+        isSettingsMode ? "ADD/ROLL · SUM/TOT · SELECT" : nil
+    }
+
+    func togglePrimaryCalculatorMode() {
+        switch primaryCalculatorMode {
+        case .add:
+            primaryCalculatorMode = .roll
+            showingTableReadout = false
+        case .roll:
+            primaryCalculatorMode = .add
+            showingTableReadout = true
+        }
+        impactLight.prepare()
+        impactLight.impactOccurred(intensity: 0.45)
     }
 
     func toggleGear() {
@@ -305,14 +329,19 @@ final class CalculatorViewModel: ObservableObject {
         return "\(total)"
     }
 
-    private static func formatRollGroup(_ group: DiceEngine.PoolRollGroup) -> String {
-        let inner = zip(group.rolls, group.underlyingRolls).map { kept, under -> String in
+    /// Comma-separated per-die outcomes (with `a,b→kept` when multiple raw rolls).
+    private static func formatRollGroupInner(_ group: DiceEngine.PoolRollGroup) -> String {
+        zip(group.rolls, group.underlyingRolls).map { kept, under -> String in
             if under.count == 1 {
                 return String(under[0])
             }
             let u = under.map(String.init).joined(separator: ",")
             return "\(u)→\(kept)"
         }.joined(separator: ",")
+    }
+
+    private static func formatRollGroup(_ group: DiceEngine.PoolRollGroup) -> String {
+        let inner = formatRollGroupInner(group)
         return "d\(group.sides)[\(inner)]=\(group.subtotal)"
     }
 
@@ -342,6 +371,14 @@ final class CalculatorViewModel: ObservableObject {
     /// Total dice of this type in the pool.
     func digitalPoolCount(for die: DigitalDie) -> Int {
         digitalPoolState.total(for: die)
+    }
+
+    /// Per-column mini readout after **ROLL** only; empty while editing the pool or on error. Unused die types in the last roll show "—".
+    func digitalMiniRollText(for die: DigitalDie) -> String {
+        guard digitalError == nil, let roll = lastDigitalRoll else { return "" }
+        let groups = roll.groups.filter { $0.sides == die.rawValue }
+        if groups.isEmpty { return "—" }
+        return groups.map { Self.formatRollGroupInner($0) }.joined(separator: " · ")
     }
 
     func togglePoolAssignmentMode(_ target: PoolAssignmentMode) {
@@ -414,15 +451,23 @@ final class CalculatorViewModel: ObservableObject {
         impactLight.impactOccurred(intensity: 0.35)
     }
 
-    /// Clears table total and digital dice state. In settings, exits without clearing the calculator.
-    func clearAll() {
+    /// Clears the 1–20 table sum and tap sequence; remains on the add calculator. In settings, exits settings only.
+    func clearAddCalculator() {
         if isSettingsMode {
             exitSettings()
             return
         }
         clearPhysicalState()
-        clearDigitalState()
         showingTableReadout = true
+        impactMedium.prepare()
+        impactMedium.impactOccurred(intensity: 0.6)
+    }
+
+    /// Clears the dice pool and last roll; remains on the roll calculator.
+    func clearRollPool() {
+        guard !isSettingsMode else { return }
+        clearDigitalState()
+        showingTableReadout = false
         impactMedium.prepare()
         impactMedium.impactOccurred(intensity: 0.6)
     }

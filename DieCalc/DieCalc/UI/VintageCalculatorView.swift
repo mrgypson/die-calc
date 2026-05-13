@@ -1,9 +1,116 @@
 import SwiftUI
 
+/// Width of the four-die `HStack` so the three-die row can match `narrow` / `wide` column splits.
+private struct DiePoolInnerRowWidthPreference: PreferenceKey, Sendable {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let n = nextValue()
+        if n > 0 { value = n }
+    }
+}
+
+/// Per–die-type key cap frames in `diePoolKeyplate` space (merged for the two-row box).
+private struct DiePoolKeyBoundsPreference: PreferenceKey, Sendable {
+    static let defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private enum DiePoolKeyplateLayout {
+    static let row1Keys = [4, 6, 8, 10]
+    static let row2Keys = [12, 20, 100]
+    static let horizontalOutsetFromKeys: CGFloat = 6
+    static let orange = Color(red: 0.95, green: 0.52, blue: 0.1)
+
+    static func geometry(bounds: [Int: CGRect]) -> (leftX: CGFloat, rightX: CGFloat, row1MidY: CGFloat, row2MidY: CGFloat)? {
+        let r1 = row1Keys.compactMap { bounds[$0] }
+        let r2 = row2Keys.compactMap { bounds[$0] }
+        guard r1.count == 4, r2.count == 3 else { return nil }
+        let all = r1 + r2
+        let keyMinX = all.map(\.minX).min() ?? 0
+        let keyMaxX = all.map(\.maxX).max() ?? 0
+        guard keyMaxX > keyMinX else { return nil }
+        let row1MidY = rowMidY(rects: r1)
+        let row2MidY = rowMidY(rects: r2)
+        guard row2MidY > row1MidY else { return nil }
+        let leftX = keyMinX - horizontalOutsetFromKeys
+        let rightX = keyMaxX + horizontalOutsetFromKeys
+        return (leftX, rightX, row1MidY, row2MidY)
+    }
+
+    private static func rowMidY(rects: [CGRect]) -> CGFloat {
+        let mids = rects.map { ($0.minY + $0.maxY) / 2 }
+        return mids.reduce(0, +) / CGFloat(mids.count)
+    }
+}
+
+/// Orange strokes only — behind the die columns.
+private struct DiePoolKeyplateLineArt: View {
+    let bounds: [Int: CGRect]
+    private let dVerticalGapHalf: CGFloat = 11
+
+    var body: some View {
+        GeometryReader { _ in
+            if let g = DiePoolKeyplateLayout.geometry(bounds: bounds) {
+                let midV = (g.row1MidY + g.row2MidY) / 2
+                Path { path in
+                    path.move(to: CGPoint(x: g.leftX, y: g.row1MidY))
+                    path.addLine(to: CGPoint(x: g.rightX, y: g.row1MidY))
+                    path.move(to: CGPoint(x: g.leftX, y: g.row2MidY))
+                    path.addLine(to: CGPoint(x: g.rightX, y: g.row2MidY))
+
+                    path.move(to: CGPoint(x: g.leftX, y: g.row1MidY))
+                    path.addLine(to: CGPoint(x: g.leftX, y: midV - dVerticalGapHalf))
+                    path.move(to: CGPoint(x: g.leftX, y: midV + dVerticalGapHalf))
+                    path.addLine(to: CGPoint(x: g.leftX, y: g.row2MidY))
+
+                    path.move(to: CGPoint(x: g.rightX, y: g.row1MidY))
+                    path.addLine(to: CGPoint(x: g.rightX, y: midV - dVerticalGapHalf))
+                    path.move(to: CGPoint(x: g.rightX, y: midV + dVerticalGapHalf))
+                    path.addLine(to: CGPoint(x: g.rightX, y: g.row2MidY))
+                }
+                .stroke(DiePoolKeyplateLayout.orange, style: StrokeStyle(lineWidth: 2.25, lineCap: .round, lineJoin: .round))
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Orange `D` labels on the vertical — above keys so they stay legible.
+private struct DiePoolKeyplateDLabels: View {
+    let bounds: [Int: CGRect]
+    let dFont: Font
+
+    var body: some View {
+        GeometryReader { _ in
+            if let g = DiePoolKeyplateLayout.geometry(bounds: bounds) {
+                let midV = (g.row1MidY + g.row2MidY) / 2
+                ZStack {
+                    Text("D")
+                        .font(dFont.weight(.bold))
+                        .foregroundStyle(DiePoolKeyplateLayout.orange)
+                        .position(x: g.leftX, y: midV)
+                    Text("D")
+                        .font(dFont.weight(.bold))
+                        .foregroundStyle(DiePoolKeyplateLayout.orange)
+                        .position(x: g.rightX, y: midV)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Sketch layout: table sum grid (1–20), digital dice pool with LEDs, bottom Clear + ROLL.
 struct VintageCalculatorView: View {
     @ObservedObject var model: CalculatorViewModel
     @Environment(\.calculatorTheme) private var theme
+
+    /// Measured from the first die row; used to size d12 / d20 / d100 columns.
+    @State private var diePoolInnerRowWidth: CGFloat = 0
 
     /// Horizontal gap between table number keys (left / right).
     private let tableColumnSpacing: CGFloat = 12
@@ -17,6 +124,29 @@ struct VintageCalculatorView: View {
     private let keyCapAspectRatio: CGFloat = 1.18
     private var tableColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: tableColumnSpacing), count: 5)
+    }
+
+    private var showPhysicalKeypad: Bool {
+        model.isSettingsMode || model.primaryCalculatorMode == .add
+    }
+
+    private var showRollPoolSection: Bool {
+        model.isSettingsMode || model.primaryCalculatorMode == .roll
+    }
+
+    /// Inset the whole die grid so orange side lines have more breathing room.
+    private let diePoolKeyGridHorizontalInset: CGFloat = 6
+    /// Narrows each die key cap within its column (does not affect modifier / mini readout).
+    private let diePoolKeyButtonHorizontalInset: CGFloat = 4
+
+    /// Page body color for a 2pt halo stroke so orange framing does not read as touching the keys.
+    private var diePoolKeyHaloColor: Color {
+        switch theme.page.background {
+        case .linearGradient(let top, _):
+            return top
+        case .checkerboardDither:
+            return Color.white
+        }
     }
 
     var body: some View {
@@ -41,35 +171,54 @@ struct VintageCalculatorView: View {
 
                     readoutToolbarRow
 
-                    LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
-                        ForEach(1 ... 20, id: \.self) { value in
-                            physicalKey(value)
-                        }
-                    }
-
-                    Group {
-                        Text("Roll pool")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(theme.chrome.sectionLabel)
-                            .textCase(.uppercase)
-                            .tracking(theme.keys.chromeStyle == .macSystem1Raised ? 1.5 : 1.1)
-
-                        poolModifierButtonRow
-
+                    if showPhysicalKeypad {
                         LazyVGrid(columns: tableColumns, spacing: tableRowSpacing) {
-                            ForEach(CalculatorViewModel.DigitalDie.allCases) { die in
-                                digitalDieColumn(die)
+                            ForEach(1 ... 20, id: \.self) { value in
+                                physicalKey(value)
                             }
                         }
 
-                        HStack(spacing: 12) {
-                            clearButton
-                            rollButton
-                        }
-                        .padding(.top, 4)
+                        addCalculatorClearButton
+                            .padding(.top, 4)
                     }
-                    .opacity(model.isSettingsMode ? 0.38 : 1)
-                    .allowsHitTesting(!model.isSettingsMode)
+
+                    if showRollPoolSection {
+                        Group {
+                            Text("Roll pool")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(theme.chrome.sectionLabel)
+                                .textCase(.uppercase)
+                                .tracking(theme.keys.chromeStyle == .macSystem1Raised ? 1.5 : 1.1)
+
+                            poolModifierButtonRow
+
+                            VStack(spacing: tableRowSpacing) {
+                                diePoolRowFourEqual()
+                                diePoolRowThreeWithWiderD100()
+                            }
+                            .padding(.horizontal, diePoolKeyGridHorizontalInset)
+                            .coordinateSpace(name: "diePoolKeyplate")
+                            .backgroundPreferenceValue(DiePoolKeyBoundsPreference.self) { keyBounds in
+                                DiePoolKeyplateLineArt(bounds: keyBounds)
+                            }
+                            .overlayPreferenceValue(DiePoolKeyBoundsPreference.self) { keyBounds in
+                                DiePoolKeyplateDLabels(bounds: keyBounds, dFont: theme.chrome.keyLabelFont)
+                            }
+                            .onPreferenceChange(DiePoolInnerRowWidthPreference.self) { w in
+                                if w > 0, abs(w - diePoolInnerRowWidth) > 0.5 {
+                                    diePoolInnerRowWidth = w
+                                }
+                            }
+
+                            HStack(spacing: 12) {
+                                rollPoolClearButton
+                                rollButton
+                            }
+                            .padding(.top, 4)
+                        }
+                        .opacity(model.isSettingsMode ? 0.38 : 1)
+                        .allowsHitTesting(!model.isSettingsMode)
+                    }
                 }
                 .padding(16)
             }
@@ -107,6 +256,51 @@ struct VintageCalculatorView: View {
             }
             .buttonStyle(TableCalcKeyButtonStyle())
             .accessibilityLabel(gearAccessibilityLabel)
+
+            Button {
+                model.togglePrimaryCalculatorMode()
+            } label: {
+                let addLED = Color(red: 0.22, green: 0.48, blue: 0.98)
+                let rollLED = Color(red: 0.16, green: 0.72, blue: 0.36)
+                let tracking = theme.keys.chromeStyle == .macSystem1Raised ? 0.6 : 0.4
+                return HStack(alignment: .bottom, spacing: 3) {
+                    VStack(spacing: 3) {
+                        modifierIndicatorLed(
+                            lit: model.primaryCalculatorMode == .add,
+                            color: addLED
+                        )
+                        Text("ADD")
+                            .font(theme.chrome.sumTotLabelFont)
+                            .tracking(tracking)
+                            .foregroundStyle(k.sumTotAccent)
+                    }
+                    Text("/")
+                        .font(theme.chrome.sumTotLabelFont)
+                        .tracking(tracking)
+                        .foregroundStyle(k.sumTotAccent.opacity(0.88))
+                    VStack(spacing: 3) {
+                        modifierIndicatorLed(
+                            lit: model.primaryCalculatorMode == .roll,
+                            color: rollLED
+                        )
+                        Text("ROLL")
+                            .font(theme.chrome.sumTotLabelFont)
+                            .tracking(tracking)
+                            .foregroundStyle(k.sumTotAccent)
+                    }
+                }
+                .frame(minWidth: 108, minHeight: 44)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(toolbarKeyChromeBackground(keys: k, shape: keyCap))
+            }
+            .buttonStyle(TableCalcKeyButtonStyle())
+            .accessibilityLabel(
+                model.primaryCalculatorMode == .add
+                    ? "Add calculator, tap to switch to roll pool"
+                    : "Roll calculator, tap to switch to add"
+            )
+            .accessibilityHint("Toggles between add and roll calculators")
 
             Spacer(minLength: 0)
 
@@ -375,53 +569,154 @@ struct VintageCalculatorView: View {
         .accessibilityHidden(true)
     }
 
-    private func digitalDieColumn(_ die: CalculatorViewModel.DigitalDie) -> some View {
+    /// Four dice; width of this row is reported for the bottom row column math.
+    private func diePoolFourDiceCoreWithGaps() -> some View {
+        HStack(alignment: .bottom, spacing: tableColumnSpacing) {
+            digitalDieColumn(.d4)
+                .frame(maxWidth: .infinity)
+            digitalDieColumn(.d6)
+                .frame(maxWidth: .infinity)
+            digitalDieColumn(.d8)
+                .frame(maxWidth: .infinity)
+            digitalDieColumn(.d10)
+                .frame(maxWidth: .infinity)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: DiePoolInnerRowWidthPreference.self,
+                    value: proxy.size.width
+                )
+            }
+        )
+    }
+
+    /// d4–d10 (orange frame is `DiePoolKeyplateLineArt` + `DiePoolKeyplateDLabels`).
+    private func diePoolRowFourEqual() -> some View {
+        diePoolFourDiceCoreWithGaps()
+    }
+
+    /// Approximate column height from key cap width (modifier strip + mini readout + keyed button).
+    private func diePoolColumnStackHeight(forKeyColumnWidth w: CGFloat) -> CGFloat {
+        let modifierStripApprox: CGFloat = 10
+        let miniReadoutMax: CGFloat = 36
+        let vStackSpacing: CGFloat = 4 + 4
+        let keyHeight = w / keyCapAspectRatio
+        return modifierStripApprox + miniReadoutMax + keyHeight + vStackSpacing
+    }
+
+    /// d12, d20, d100: same face chrome and inter-key dashes; d100 ~1.5× narrow (width from first-row core).
+    private func diePoolRowThreeWithWiderD100() -> some View {
+        let sp = tableColumnSpacing
+        let inner = max(diePoolInnerRowWidth, 220)
+        let innerThree = max(0, inner - sp * 2)
+        // Two gaps between three columns (same spacing as top row).
+        let narrow = innerThree / 3.5
+        let wide = narrow * 1.5
+        let uniformKeyHeight = narrow / keyCapAspectRatio
+        let rowHeight = diePoolColumnStackHeight(forKeyColumnWidth: narrow)
+        return HStack(alignment: .bottom, spacing: tableColumnSpacing) {
+            digitalDieColumn(.d12, uniformKeyHeight: uniformKeyHeight)
+                .frame(width: narrow)
+            digitalDieColumn(.d20, uniformKeyHeight: uniformKeyHeight)
+                .frame(width: narrow)
+            digitalDieColumn(.d100, uniformKeyHeight: uniformKeyHeight)
+                .frame(width: wide)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: rowHeight)
+    }
+
+    private func digitalDieColumn(_ die: CalculatorViewModel.DigitalDie, uniformKeyHeight: CGFloat? = nil) -> some View {
         let presses = model.digitalPressCount(for: die)
         let pool = model.digitalPoolCount(for: die)
+        let miniRoll = model.digitalMiniRollText(for: die)
         let k = theme.keys
         let labelFont = theme.chrome.keyLabelFont
         let glyphSize: CGFloat = 17
+        let keyButton = Button {
+            model.tapDigitalDie(die)
+        } label: {
+            VStack(spacing: tableLedToKeySpacing) {
+                keyCapLedRow(pressCount: presses)
+                    .padding(.top, keyCapLedTopInset)
+
+                HStack(alignment: .center, spacing: 3) {
+                    DigitalDieGlyphView(die: die, fill: theme.chrome.dieGlyph)
+                        .frame(width: glyphSize, height: glyphSize)
+                    Text(die.keyFaceNumber)
+                        .font(labelFont)
+                        .foregroundStyle(k.label)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.bottom, 6)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(tableKeyCapChromeBackground(keys: k))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(diePoolKeyHaloColor, lineWidth: 2)
+            }
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 3) {
+                model.removeOneDigitalDie(die)
+            }
+        }
+        .buttonStyle(TableCalcKeyButtonStyle())
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(digitalDieAccessibilityLabel(die: die, pool: pool, presses: presses, miniRollText: miniRoll))
+
         return VStack(alignment: .leading, spacing: 4) {
             diePoolModifierIndicators(die: die)
 
-            Button {
-                model.tapDigitalDie(die)
-            } label: {
-                VStack(spacing: tableLedToKeySpacing) {
-                    keyCapLedRow(pressCount: presses)
-                        .padding(.top, keyCapLedTopInset)
+            dieMiniRollReadout(text: miniRoll)
 
-                    HStack(alignment: .center, spacing: 3) {
-                        DigitalDieGlyphView(die: die, fill: theme.chrome.dieGlyph)
-                            .frame(width: glyphSize, height: glyphSize)
-                        Text(die == .d100 ? "100" : die.buttonCaption)
-                            .font(labelFont)
-                            .foregroundStyle(k.label)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .padding(.bottom, 6)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(tableKeyCapChromeBackground(keys: k))
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 3) {
-                    model.removeOneDigitalDie(die)
+            Group {
+                if let h = uniformKeyHeight {
+                    keyButton.frame(height: h)
+                } else {
+                    keyButton.aspectRatio(keyCapAspectRatio, contentMode: .fit)
                 }
             }
-            .buttonStyle(TableCalcKeyButtonStyle())
-            .frame(maxWidth: .infinity)
-            .aspectRatio(keyCapAspectRatio, contentMode: .fit)
-            .accessibilityLabel(digitalDieAccessibilityLabel(die: die, pool: pool, presses: presses))
+            .padding(.horizontal, diePoolKeyButtonHorizontalInset)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: DiePoolKeyBoundsPreference.self,
+                        value: [die.rawValue: geo.frame(in: .named("diePoolKeyplate"))]
+                    )
+                }
+            )
         }
+    }
+
+    /// Compact LCD strip: idle until `text` is non-empty after a roll (or "—" for unused die column).
+    private func dieMiniRollReadout(text: String) -> some View {
+        let lcd = theme.lcd
+        return Text(text)
+            .font(lcd.expressionSmallFont)
+            .foregroundStyle(text.isEmpty ? lcd.foregroundDim.opacity(0.35) : lcd.foreground)
+            .lineLimit(3)
+            .minimumScaleFactor(0.45)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 30, maxHeight: 36, alignment: .center)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(lcd.panelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .accessibilityElement(children: .ignore)
+            .accessibilityHidden(true)
     }
 
     private func digitalDieAccessibilityLabel(
         die: CalculatorViewModel.DigitalDie,
         pool: Int,
-        presses: Int
+        presses: Int,
+        miniRollText: String
     ) -> String {
         let mode = model.poolAssignmentMode
         let modeHint: String
@@ -441,7 +736,8 @@ struct VintageCalculatorView: View {
         } else {
             modHint = "\(a) advantage, \(a2) double advantage, \(d) disadvantage"
         }
-        return "\(die.buttonCaption), \(pool) dice, \(presses) taps, \(modHint), \(modeHint), long press three seconds to remove one die"
+        let rollHint = miniRollText.isEmpty ? "" : ", last roll \(miniRollText)"
+        return "\(die.buttonCaption), \(pool) dice, \(presses) taps, \(modHint), \(modeHint)\(rollHint), long press three seconds to remove one die"
     }
 
     /// Five tier LEDs along the top inside a physical table key cap.
@@ -457,10 +753,10 @@ struct VintageCalculatorView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var clearButton: some View {
+    private var addCalculatorClearButton: some View {
         let a = theme.actions
         let k = theme.keys
-        return Button(action: { model.clearAll() }) {
+        return Button(action: { model.clearAddCalculator() }) {
             ZStack {
                 actionButtonChrome(keys: k, actions: a, kind: .clear)
                 ZStack {
@@ -476,7 +772,33 @@ struct VintageCalculatorView: View {
             .frame(height: 54)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Clear table and dice")
+        .accessibilityLabel(
+            model.isSettingsMode
+                ? "Close settings"
+                : "Clear table sum"
+        )
+    }
+
+    private var rollPoolClearButton: some View {
+        let a = theme.actions
+        let k = theme.keys
+        return Button(action: { model.clearRollPool() }) {
+            ZStack {
+                actionButtonChrome(keys: k, actions: a, kind: .clear)
+                ZStack {
+                    Circle()
+                        .stroke(a.clearIconRing, lineWidth: 2)
+                        .frame(width: 28, height: 28)
+                    Image(systemName: "xmark")
+                        .font(a.clearIconFont)
+                        .foregroundStyle(a.clearIcon)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear dice pool")
     }
 
     private var rollButton: some View {
